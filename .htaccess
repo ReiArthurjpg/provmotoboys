@@ -1,0 +1,23 @@
+DirectoryIndex index.php index.html public/index.php
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    RewriteCond %{HTTP:Authorization} .
+    RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+
+    RewriteRule ^(\.env.*|composer\.(json|lock)|phpunit\.xml|docker-compose\.yml|README\.md)$ - [F,L,NC]
+    RewriteRule ^(src|docker|tests|load|vendor)/ - [F,L,NC]
+
+    RewriteRule ^docs/?$ index.php [QSA,L]
+
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteRule ^ index.php [QSA,L]
+</IfModule>
+
+<FilesMatch "^\.env|composer\.(json|lock)|phpunit\.xml">
+    Order allow,deny
+    Deny from all
+</FilesMatch>
+

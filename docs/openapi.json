@@ -1,0 +1,219 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "LogMovy — API de Gestão e Homologação de Motoboys",
+    "version": "1.0.0",
+    "description": "API dedicada para a tela de Motoboys do painel Gest-oLogMovy (Porta 8020), compartilhando o mesmo banco de dados MySQL do CadastroMotoboys."
+  },
+  "servers": [
+    {
+      "url": "http://localhost:8020",
+      "description": "Servidor Docker Local (Porta 8020)"
+    },
+    {
+      "url": "https://logmovy.kodyvera.com/Motoboys",
+      "description": "Produção Hostinger"
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "AdminApiKey": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-API-Key",
+        "description": "Chave administrativa (padrão: lmv_admin_secret_key_2026_prod)"
+      }
+    }
+  },
+  "security": [
+    {
+      "AdminApiKey": []
+    }
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "tags": ["Infraestrutura"],
+        "summary": "Healthcheck da API, MySQL Compartilhado e Redis",
+        "security": [],
+        "responses": {
+          "200": { "description": "Serviços operacionais" }
+        }
+      }
+    },
+    "/api/v1/admin/motoboys/stats": {
+      "get": {
+        "tags": ["Gestão de Motoboys"],
+        "summary": "Retorna os indicadores dos 4 Bento KPI Cards da tela de Motoboys",
+        "responses": {
+          "200": { "description": "Contadores gerais da frota" }
+        }
+      }
+    },
+    "/api/v1/admin/motoboys": {
+      "get": {
+        "tags": ["Gestão de Motoboys"],
+        "summary": "Lista motoboys com filtros por status, MEI, busca textual e ordenação",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": ["rascunho", "pendente_analise", "aprovado", "reprovado"]
+            }
+          },
+          {
+            "name": "mei",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": ["all", "with_mei", "without_mei"]
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": ["recent", "name", "step"]
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "integer", "default": 1 }
+          },
+          {
+            "name": "perPage",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "integer", "default": 100 }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Lista paginada de entregadores e contadores" }
+        }
+      },
+      "post": {
+        "tags": ["Gestão de Motoboys"],
+        "summary": "Cadastra um novo entregador completo (4 etapas) direto pelo painel",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["name", "cpf", "plate"],
+                "properties": {
+                  "name": { "type": "string", "example": "Carlos Eduardo Silva" },
+                  "cpf": { "type": "string", "example": "10849283409" },
+                  "birthDate": { "type": "string", "example": "1996-05-14" },
+                  "email": { "type": "string", "example": "carlos.moto@gmail.com" },
+                  "phone": { "type": "string", "example": "83998124410" },
+                  "plate": { "type": "string", "example": "QSB-4F91" },
+                  "mei_cnpj": { "type": "string", "nullable": true, "example": "48192831000190" },
+                  "cnh": { "type": "string", "nullable": true, "example": "06491827310" },
+                  "banco": { "type": "string", "example": "260 - Nu Pagamentos (Nubank)" },
+                  "agencia": { "type": "string", "example": "0001" },
+                  "conta": { "type": "string", "example": "8492019-5" },
+                  "tipoConta": { "type": "string", "example": "corrente" },
+                  "cpfTitular": { "type": "string", "example": "10849283409" },
+                  "tipoChavePix": { "type": "string", "example": "CPF" },
+                  "chavePix": { "type": "string", "example": "10849283409" },
+                  "diasDisponiveis": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "example": ["Segunda-feira", "Terça-feira", "Quarta-feira", "Quinta-feira", "Sexta-feira"]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Entregador criado no banco compartilhado" }
+        }
+      }
+    },
+    "/api/v1/admin/motoboys/{id}": {
+      "get": {
+        "tags": ["Gestão de Motoboys"],
+        "summary": "Retorna o Dossiê Executivo completo do entregador (Perfil, Bancário/PIX, Escala 7 dias e Termos)",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "format": "uuid" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Dossiê completo" },
+          "404": { "description": "Não encontrado" }
+        }
+      },
+      "delete": {
+        "tags": ["Gestão de Motoboys"],
+        "summary": "Remove um cadastro de motoboy do banco",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "format": "uuid" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Removido com sucesso" }
+        }
+      }
+    },
+    "/api/v1/admin/motoboys/{id}/status": {
+      "patch": {
+        "tags": ["Gestão de Motoboys"],
+        "summary": "Homologa (aprova), reprova ou coloca o entregador em análise",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "format": "uuid" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["status"],
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "enum": ["pendente_analise", "aprovado", "reprovado", "rascunho"],
+                    "example": "aprovado"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Status atualizado" }
+        }
+      }
+    }
+  }
+}
+
