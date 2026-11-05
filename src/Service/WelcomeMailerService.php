@@ -274,16 +274,24 @@ HTML;
             $this->writeSmtpCommand($fp, 'EHLO logmovy.local');
             if ($this->smtpPort === 587) {
                 $this->writeSmtpCommand($fp, 'STARTTLS');
-                if (!@stream_socket_enable_crypto($fp, true, STREAM_CRYPTO_METHOD_TLS_CLIENT)) {
+                $cryptoMethod = STREAM_CRYPTO_METHOD_TLS_CLIENT;
+                if (defined('STREAM_CRYPTO_METHOD_TLSv1_2_CLIENT')) {
+                    $cryptoMethod |= STREAM_CRYPTO_METHOD_TLSv1_2_CLIENT;
+                }
+                if (defined('STREAM_CRYPTO_METHOD_TLSv1_3_CLIENT')) {
+                    $cryptoMethod |= STREAM_CRYPTO_METHOD_TLSv1_3_CLIENT;
+                }
+                if (!@stream_socket_enable_crypto($fp, true, $cryptoMethod)) {
                     fclose($fp);
                     return false;
                 }
                 $this->writeSmtpCommand($fp, 'EHLO logmovy.local');
             }
 
+            $cleanPass = str_replace(' ', '', $this->smtpPass);
             $this->writeSmtpCommand($fp, 'AUTH LOGIN');
             $this->writeSmtpCommand($fp, base64_encode($this->smtpUser));
-            $authResp = $this->writeSmtpCommand($fp, base64_encode($this->smtpPass));
+            $authResp = $this->writeSmtpCommand($fp, base64_encode($cleanPass));
             if (!str_starts_with($authResp, '235')) {
                 fclose($fp);
                 return false;

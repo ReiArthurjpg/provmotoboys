@@ -55,7 +55,8 @@ use Psr\Http\Message\ServerRequestInterface;
             [$name, $value] = explode('=', $line, 2);
             $name = trim($name);
             $value = trim($value, " \t\n\r\0\x0B\"'");
-            if ($name !== '' && !isset($_ENV[$name]) && getenv($name) === false) {
+            $existing = $_ENV[$name] ?? getenv($name);
+            if ($name !== '' && ($existing === false || $existing === '')) {
                 $_ENV[$name] = $value;
                 $_SERVER[$name] = $value;
                 putenv("{$name}={$value}");
@@ -125,12 +126,12 @@ $container = new SimpleContainer([
 
     WelcomeMailerService::class => static fn (): WelcomeMailerService => new WelcomeMailerService(
         (string) ($_ENV['MOTOBOY_LOGIN_URL'] ?? getenv('MOTOBOY_LOGIN_URL') ?: 'https://logmovy.kodyvera.com/login'),
-        (string) ($_ENV['SMTP_HOST'] ?? getenv('SMTP_HOST') ?: ''),
-        (int) ($_ENV['SMTP_PORT'] ?? getenv('SMTP_PORT') ?: 587),
-        (string) ($_ENV['SMTP_USER'] ?? getenv('SMTP_USER') ?: ''),
-        (string) ($_ENV['SMTP_PASS'] ?? getenv('SMTP_PASS') ?: ''),
-        (string) ($_ENV['SMTP_FROM_EMAIL'] ?? getenv('SMTP_FROM_EMAIL') ?: 'operacao@logmovy.com.br'),
-        (string) ($_ENV['SMTP_FROM_NAME'] ?? getenv('SMTP_FROM_NAME') ?: 'LogMovy Operações')
+        (string) (($_ENV['SMTP_HOST'] ?? getenv('SMTP_HOST') ?: '') ?: 'smtp.gmail.com'),
+        (int) (($_ENV['SMTP_PORT'] ?? getenv('SMTP_PORT') ?: '') ?: 587),
+        (string) (($_ENV['SMTP_USER'] ?? getenv('SMTP_USER') ?: '') ?: 'arthurnexora@gmail.com'),
+        (string) (($_ENV['SMTP_PASS'] ?? getenv('SMTP_PASS') ?: '') ?: 'rjyadhbjpmqfeyec'),
+        (string) (($_ENV['SMTP_FROM_EMAIL'] ?? getenv('SMTP_FROM_EMAIL') ?: '') ?: 'arthurnexora@gmail.com'),
+        (string) (($_ENV['SMTP_FROM_NAME'] ?? getenv('SMTP_FROM_NAME') ?: '') ?: 'LogMovy Operações')
     ),
 
     MotoboyController::class => static fn (ContainerInterface $c): MotoboyController => new MotoboyController(
