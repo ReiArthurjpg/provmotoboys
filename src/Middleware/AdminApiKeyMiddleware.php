@@ -19,7 +19,7 @@ final class AdminApiKeyMiddleware implements MiddlewareInterface
 
     public function process(ServerRequestInterface $request, RequestHandlerInterface $handler): ResponseInterface
     {
-        $provided = trim($request->getHeaderLine('X-API-Key'));
+        $provided = trim($request->getHeaderLine('X-API-Key') ?: $request->getHeaderLine('X-Admin-Key'));
 
         if ($provided === '' || $this->expectedApiKey === '' || !hash_equals($this->expectedApiKey, $provided)) {
             throw ApiException::unauthorized('Chave de administração (X-API-Key) ausente ou inválida.', 'INVALID_ADMIN_KEY');

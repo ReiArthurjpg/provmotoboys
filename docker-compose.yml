@@ -28,6 +28,7 @@ services:
       - "host.docker.internal:host-gateway"
     volumes:
       - ./.env:/var/www/html/.env:ro
+      - ./docker/php/opcache.ini:/usr/local/etc/php/conf.d/10-opcache.ini:ro
       - ./src:/var/www/html/src:ro
       - ./public:/var/www/html/public:ro
       - ./docs:/var/www/html/docs
