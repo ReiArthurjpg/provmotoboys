@@ -44,8 +44,6 @@ final class MotoboyRepository
     }
 
     /**
-     * Retorna os contadores gerais para os 4 Bento KPI Cards da tela de Motoboys.
-     *
      * @return array{
      *   totalCount: int,
      *   aprovados: int,
@@ -93,8 +91,6 @@ final class MotoboyRepository
     }
 
     /**
-     * Lista paginada e filtrável para a tela de Gestão de Motoboys.
-     *
      * @return array{items: array<int, array<string, mixed>>, total: int}
      */
     public function paginateForPanel(
@@ -274,8 +270,6 @@ final class MotoboyRepository
     }
 
     /**
-     * Cria um cadastro completo (4 etapas) diretamente pelo painel executivo.
-     *
      * @param array<string, mixed> $payload
      */
     public function createFullMotoboy(array $payload): int
@@ -412,8 +406,11 @@ final class MotoboyRepository
         }
     }
 
-    public function updateStatusByPublicId(string $publicId, string $status): bool
-    {
+    public function updateStatusByPublicId(
+        string $publicId,
+        string $status,
+        ?string $newPasswordHash = null
+    ): bool {
         $current = $this->findByPublicId($publicId);
         if ($current === null) {
             return false;
@@ -426,20 +423,37 @@ final class MotoboyRepository
 
         $step = $status === 'aprovado' ? 4 : (int) ($current['current_step'] ?? 4);
 
-        $stmt = $this->pdo->prepare(
-            'UPDATE motoboys
-             SET status = :status,
-                 protocol = :protocol,
-                 current_step = :current_step
-             WHERE public_id = :public_id'
-        );
-
-        $stmt->execute([
-            'status' => $status,
-            'protocol' => $protocol,
-            'current_step' => $step,
-            'public_id' => $publicId,
-        ]);
+        if ($newPasswordHash !== null && $newPasswordHash !== '') {
+            $stmt = $this->pdo->prepare(
+                'UPDATE motoboys
+                 SET status = :status,
+                     protocol = :protocol,
+                     current_step = :current_step,
+                     password_hash = :password_hash
+                 WHERE public_id = :public_id'
+            );
+            $stmt->execute([
+                'status' => $status,
+                'protocol' => $protocol,
+                'current_step' => $step,
+                'password_hash' => $newPasswordHash,
+                'public_id' => $publicId,
+            ]);
+        } else {
+            $stmt = $this->pdo->prepare(
+                'UPDATE motoboys
+                 SET status = :status,
+                     protocol = :protocol,
+                     current_step = :current_step
+                 WHERE public_id = :public_id'
+            );
+            $stmt->execute([
+                'status' => $status,
+                'protocol' => $protocol,
+                'current_step' => $step,
+                'public_id' => $publicId,
+            ]);
+        }
 
         return $stmt->rowCount() >= 0;
     }
@@ -462,4 +476,3 @@ final class MotoboyRepository
         return $stmt ? $stmt->fetchAll(PDO::FETCH_ASSOC) : [];
     }
 }
-

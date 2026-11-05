@@ -6,6 +6,7 @@ namespace App\Controller;
 
 use App\Exception\ApiException;
 use App\Repository\MotoboyRepository;
+use App\Service\WelcomeMailerService;
 use App\Support\JsonResponse;
 use App\Validation\DocumentValidator;
 use Psr\Http\Message\ResponseInterface;
@@ -17,6 +18,7 @@ final class MotoboyController
 
     public function __construct(
         private readonly MotoboyRepository $repository,
+        private readonly WelcomeMailerService $welcomeMailer,
         private readonly string $termsVersion = '1.1'
     ) {
     }
@@ -77,7 +79,6 @@ final class MotoboyController
 
     /**
      * POST /api/v1/motoboys e /api/v1/admin/motoboys
-     * Cadastra um entregador completo em 4 etapas vindo do modal do painel.
      */
     public function create(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
     {
@@ -134,7 +135,6 @@ final class MotoboyController
             ? (string) $body['status']
             : 'pendente_analise';
 
-        // Dados Bancários (aceita formato aninhado ou plano do modal)
         $bankingInput = is_array($body['banking'] ?? null) ? $body['banking'] : $body;
         $rawBank = trim((string) ($bankingInput['bank_name'] ?? $bankingInput['banco'] ?? '260 - Nu Pagamentos (Nubank)'));
         $bankCode = trim((string) ($bankingInput['bank_code'] ?? ''));
@@ -241,6 +241,8 @@ final class MotoboyController
 
     /**
      * PATCH /api/v1/motoboys/{id}/status e /api/v1/admin/motoboys/{id}/status
+     * Quando o status passa a ser 'aprovado', gera a senha oficial de acesso, sincroniza no banco
+     * e dispara o template de boas-vindas com Nome, E-mail, Senha e URL de Login.
      */
     public function updateStatus(ServerRequestInterface $request, ResponseInterface $response, array $args): ResponseInterface
     {
@@ -260,12 +262,98 @@ final class MotoboyController
             throw ApiException::notFound('Motoboy não encontrado.');
         }
 
-        $this->repository->updateStatusByPublicId($publicId, $status);
+        $welcomeData = null;
+        $newPasswordHash = null;
+        $accessPassword = null;
+
+        if ($status === 'aprovado') {
+            $customPassword = trim((string) ($body['password'] ?? ''));
+            $cpfDigits = DocumentValidator::digitsOnly((string) ($motoboy['cpf'] ?? ''));
+            $cpfSuffix = strlen($cpfDigits) >= 4 ? substr($cpfDigits, -4) : '2026';
+            $plateClean = strtoupper(preg_replace('/[^A-Za-z0-9]/', '', (string) ($motoboy['plate'] ?? 'LMV')) ?? 'LMV');
+            $platePrefix = substr($plateClean, 0, 3) ?: 'LMV';
+
+            $accessPassword = $customPassword !== ''
+                ? $customPassword
+                : sprintf('Log@%s%s', $cpfSuffix, $platePrefix);
+
+            $newPasswordHash = password_hash($accessPassword, PASSWORD_BCRYPT);
+        }
+
+        $this->repository->updateStatusByPublicId($publicId, $status, $newPasswordHash);
+
+        if ($status === 'aprovado' && $accessPassword !== null) {
+            $updated = $this->repository->findByPublicId($publicId) ?? $motoboy;
+            $welcomeData = $this->welcomeMailer->sendWelcomeCredentials([
+                'name' => (string) $updated['name'],
+                'email' => (string) $updated['email'],
+                'phone' => (string) $updated['phone'],
+                'protocol' => (string) ($updated['protocol'] ?? 'LMV-2026'),
+                'plate' => (string) ($updated['plate'] ?? ''),
+                'password' => $accessPassword,
+                'loginUrl' => isset($body['loginUrl']) ? (string) $body['loginUrl'] : '',
+            ]);
+        }
+
+        $payload = [
+            'id' => $publicId,
+            'status' => $status,
+            'message' => $status === 'aprovado'
+                ? 'Motoboy aprovado! Credenciais e template de boas-vindas gerados.'
+                : 'Status do cadastro atualizado com sucesso.',
+        ];
+
+        if ($welcomeData !== null) {
+            $payload['welcome'] = $welcomeData;
+        }
+
+        return JsonResponse::send($response, $payload);
+    }
+
+    /**
+     * POST /api/v1/motoboys/{id}/send-welcome e /api/v1/admin/motoboys/{id}/send-welcome
+     * Permite reenviar o template de boas-vindas com Nome, E-mail, Senha e URL de Login a qualquer momento.
+     */
+    public function sendWelcome(ServerRequestInterface $request, ResponseInterface $response, array $args): ResponseInterface
+    {
+        $publicId = (string) ($args['id'] ?? '');
+        $motoboy = $this->repository->findByPublicId($publicId);
+        if ($motoboy === null) {
+            throw ApiException::notFound('Motoboy não encontrado.');
+        }
+
+        $raw = (string) $request->getBody();
+        $body = is_array($request->getParsedBody()) ? $request->getParsedBody() : (json_decode($raw, true) ?: []);
+
+        $customPassword = trim((string) ($body['password'] ?? ''));
+        $cpfDigits = DocumentValidator::digitsOnly((string) ($motoboy['cpf'] ?? ''));
+        $cpfSuffix = strlen($cpfDigits) >= 4 ? substr($cpfDigits, -4) : '2026';
+        $plateClean = strtoupper(preg_replace('/[^A-Za-z0-9]/', '', (string) ($motoboy['plate'] ?? 'LMV')) ?? 'LMV');
+        $platePrefix = substr($plateClean, 0, 3) ?: 'LMV';
+
+        $accessPassword = $customPassword !== ''
+            ? $customPassword
+            : sprintf('Log@%s%s', $cpfSuffix, $platePrefix);
+
+        $newPasswordHash = password_hash($accessPassword, PASSWORD_BCRYPT);
+        $this->repository->updateStatusByPublicId($publicId, 'aprovado', $newPasswordHash);
+
+        $updated = $this->repository->findByPublicId($publicId) ?? $motoboy;
+        $welcomeData = $this->welcomeMailer->sendWelcomeCredentials([
+            'name' => (string) $updated['name'],
+            'email' => (string) $updated['email'],
+            'phone' => (string) $updated['phone'],
+            'protocol' => (string) ($updated['protocol'] ?? 'LMV-2026'),
+            'plate' => (string) ($updated['plate'] ?? ''),
+            'password' => $accessPassword,
+            'loginUrl' => isset($body['loginUrl']) ? (string) $body['loginUrl'] : '',
+        ]);
 
         return JsonResponse::send($response, [
             'id' => $publicId,
-            'status' => $status,
-            'message' => 'Status do cadastro atualizado com sucesso.',
+            'status' => 'aprovado',
+            'message' => 'Template de boas-vindas gerado e enviado com sucesso!',
+            'welcome' => $welcomeData,
         ]);
     }
 
@@ -330,4 +418,3 @@ final class MotoboyController
         return vsprintf('%s%s-%s-%s-%s-%s%s%s', str_split(bin2hex($data), 4));
     }
 }
-

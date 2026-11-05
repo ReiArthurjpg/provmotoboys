@@ -28,6 +28,7 @@ use App\Middleware\IdempotencyMiddleware;
 use App\Middleware\JsonErrorMiddleware;
 use App\Middleware\RateLimitMiddleware;
 use App\Repository\MotoboyRepository;
+use App\Service\WelcomeMailerService;
 use App\Support\JsonResponse;
 use App\Support\SimpleContainer;
 use App\Support\StandaloneApp;
@@ -73,39 +74,22 @@ $container = new SimpleContainer([
             return $pdo;
         }
 
-        $db = (string) ($_ENV['DB_DATABASE'] ?? getenv('DB_DATABASE') ?: 'logmovy_cadastro');
+        // Conecta diretamente ao banco já existente do C:\git\CadastroMotoboys
+        $host = (string) ($_ENV['DB_HOST'] ?? getenv('DB_HOST') ?: 'host.docker.internal');
+        $port = (string) ($_ENV['DB_PORT'] ?? getenv('DB_PORT') ?: '3307');
+        $db   = (string) ($_ENV['DB_DATABASE'] ?? getenv('DB_DATABASE') ?: 'logmovy_cadastro');
         $user = (string) ($_ENV['DB_USERNAME'] ?? getenv('DB_USERNAME') ?: 'logmovy_user');
         $pass = (string) ($_ENV['DB_PASSWORD'] ?? getenv('DB_PASSWORD') ?: 'logmovy_pass_secret');
 
-        $options = [
+        $ip = gethostbyname($host);
+        $dsn = sprintf('mysql:host=%s;port=%s;dbname=%s;charset=utf8mb4', $ip, $port, $db);
+
+        $pdo = new PDO($dsn, $user, $pass, [
             PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
             PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
             PDO::ATTR_EMULATE_PREPARES => false,
             PDO::ATTR_PERSISTENT => false,
-            PDO::ATTR_TIMEOUT => 2,
-        ];
-
-        // 1. Prioridade máxima: conectar diretamente na mesma instância MySQL do C:\git\CadastroMotoboys (porta 3307 no host Docker)
-        $sharedHost = (string) ($_ENV['SHARED_DB_HOST'] ?? getenv('SHARED_DB_HOST') ?: '');
-        $sharedPort = (string) ($_ENV['SHARED_DB_PORT'] ?? getenv('SHARED_DB_PORT') ?: '3307');
-        if ($sharedHost !== '') {
-            try {
-                $sharedIp = gethostbyname($sharedHost);
-                $sharedDsn = sprintf('mysql:host=%s;port=%s;dbname=%s;charset=utf8mb4', $sharedIp, $sharedPort, $db);
-                $pdo = new PDO($sharedDsn, $user, $pass, $options);
-                return $pdo;
-            } catch (Throwable) {
-                // Se o container logmovy_mysql (3307) não estiver rodando, faz fallback transparente para DB_HOST
-            }
-        }
-
-        // 2. Conexão padrão (container mysql local ou banco de produção Hostinger u865404728_LogCadastroMot)
-        $host = (string) ($_ENV['DB_HOST'] ?? getenv('DB_HOST') ?: '127.0.0.1');
-        $port = (string) ($_ENV['DB_PORT'] ?? getenv('DB_PORT') ?: '3306');
-        $ip = gethostbyname($host);
-        $dsn = sprintf('mysql:host=%s;port=%s;dbname=%s;charset=utf8mb4', $ip, $port, $db);
-
-        $pdo = new PDO($dsn, $user, $pass, $options);
+        ]);
         return $pdo;
     },
 
@@ -139,8 +123,19 @@ $container = new SimpleContainer([
         $c->get(PDO::class)
     ),
 
+    WelcomeMailerService::class => static fn (): WelcomeMailerService => new WelcomeMailerService(
+        (string) ($_ENV['MOTOBOY_LOGIN_URL'] ?? getenv('MOTOBOY_LOGIN_URL') ?: 'https://logmovy.kodyvera.com/login'),
+        (string) ($_ENV['SMTP_HOST'] ?? getenv('SMTP_HOST') ?: ''),
+        (int) ($_ENV['SMTP_PORT'] ?? getenv('SMTP_PORT') ?: 587),
+        (string) ($_ENV['SMTP_USER'] ?? getenv('SMTP_USER') ?: ''),
+        (string) ($_ENV['SMTP_PASS'] ?? getenv('SMTP_PASS') ?: ''),
+        (string) ($_ENV['SMTP_FROM_EMAIL'] ?? getenv('SMTP_FROM_EMAIL') ?: 'operacao@logmovy.com.br'),
+        (string) ($_ENV['SMTP_FROM_NAME'] ?? getenv('SMTP_FROM_NAME') ?: 'LogMovy Operações')
+    ),
+
     MotoboyController::class => static fn (ContainerInterface $c): MotoboyController => new MotoboyController(
         $c->get(MotoboyRepository::class),
+        $c->get(WelcomeMailerService::class),
         (string) ($_ENV['TERMS_CURRENT_VERSION'] ?? getenv('TERMS_CURRENT_VERSION') ?: '1.1')
     ),
 
@@ -203,9 +198,9 @@ $app->get('/', static function (ServerRequestInterface $request, ResponseInterfa
     $base = $app->getBasePath();
     return JsonResponse::send($response, [
         'name' => 'LogMovy - API de Gestão e Homologação de Motoboys',
-        'version' => '1.0.0',
+        'version' => '1.1.0',
         'port' => 8020,
-        'database' => 'Compartilhado com CadastroMotoboys (logmovy_cadastro / u865404728_LogCadastroMot)',
+        'database' => 'Conectado diretamente ao banco do CadastroMotoboys (logmovy_cadastro / u865404728_LogCadastroMot)',
         'docs' => $base . '/docs',
         'openapi' => $base . '/openapi.json',
         'health' => $base . '/health',
@@ -215,6 +210,7 @@ $app->get('/', static function (ServerRequestInterface $request, ResponseInterfa
             'detail' => 'GET ' . $base . '/api/v1/admin/motoboys/{id}',
             'create' => 'POST ' . $base . '/api/v1/admin/motoboys',
             'update_status' => 'PATCH ' . $base . '/api/v1/admin/motoboys/{id}/status',
+            'send_welcome' => 'POST ' . $base . '/api/v1/admin/motoboys/{id}/send-welcome',
             'delete' => 'DELETE ' . $base . '/api/v1/admin/motoboys/{id}',
             'banks' => 'GET ' . $base . '/api/v1/banks',
         ],
@@ -259,7 +255,6 @@ $app->get('/docs', static function (ServerRequestInterface $request, ResponseInt
 $app->group('/api/v1', function ($group): void {
     $group->get('/banks', [CatalogController::class, 'listBanks']);
 
-    // Rotas diretas (/api/v1/motoboys...) e rotas admin (/api/v1/admin/motoboys...) protegidas por X-API-Key
     $adminKey = (string) ($_ENV['ADMIN_API_KEY'] ?? getenv('ADMIN_API_KEY') ?: 'lmv_admin_secret_key_2026_prod');
     $authMiddleware = new AdminApiKeyMiddleware($adminKey);
 
@@ -269,6 +264,7 @@ $app->group('/api/v1', function ($group): void {
         $m->post('', [MotoboyController::class, 'create']);
         $m->get('/{id}', [MotoboyController::class, 'detail']);
         $m->patch('/{id}/status', [MotoboyController::class, 'updateStatus']);
+        $m->post('/{id}/send-welcome', [MotoboyController::class, 'sendWelcome']);
         $m->delete('/{id}', [MotoboyController::class, 'delete']);
     })->add($authMiddleware);
 
@@ -278,9 +274,9 @@ $app->group('/api/v1', function ($group): void {
         $admin->post('/motoboys', [MotoboyController::class, 'create']);
         $admin->get('/motoboys/{id}', [MotoboyController::class, 'detail']);
         $admin->patch('/motoboys/{id}/status', [MotoboyController::class, 'updateStatus']);
+        $admin->post('/motoboys/{id}/send-welcome', [MotoboyController::class, 'sendWelcome']);
         $admin->delete('/motoboys/{id}', [MotoboyController::class, 'delete']);
     })->add($authMiddleware);
 });
 
 $app->run();
-
