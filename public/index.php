@@ -234,8 +234,8 @@ $app->get('/openapi.json', static function (ServerRequestInterface $request, Res
         if (is_array($decoded)) {
             $decoded['servers'] = [
                 ['url' => $currentServerUrl, 'description' => 'Servidor Atual (' . $host . ')'],
+                ['url' => 'https://logmovy.kodyvera.com/Provmotoboy/Prod', 'description' => 'Produção Hostinger (LogMovy)'],
                 ['url' => 'http://localhost:8020', 'description' => 'Servidor Docker Local (Porta 8020)'],
-                ['url' => 'https://logmovy.kodyvera.com/Motoboys', 'description' => 'Produção Hostinger (LogMovy)'],
             ];
             $response->getBody()->write((string) json_encode($decoded, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
             return $response->withHeader('Content-Type', 'application/json; charset=utf-8');
